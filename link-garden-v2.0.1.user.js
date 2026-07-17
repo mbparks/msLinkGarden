@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Link Garden
 // @namespace    https://mbparks.com/fieldinstruments
-// @version      2.0.0
+// @version      2.0.1
 // @description  Turn saved links into a living atlas with multiple gardens, snapshots, read-only sharing, maps, long-range reports, cultivation tools, history, bookmark migration, and ambient ecology.
 // @author       Michael Parks
 // @match        *://*/*
@@ -17,7 +17,7 @@
   'use strict';
 
   const APP_NAME = 'Link Garden';
-  const VERSION = '2.0.0';
+  const VERSION = '2.0.1';
   const STORAGE_KEY = 'linkGarden.v1';
   const DAY = 86_400_000;
 
@@ -613,7 +613,39 @@
     if (panel?.dataset.open === 'true') render();
   }
 
+  function installShadowStyles(root, cssText) {
+    // Sites with strict Content Security Policies, including LinkedIn, can
+    // reject inline <style> elements even inside a userscript Shadow DOM.
+    // Constructable stylesheets are not inline page styles and keep the UI
+    // fully isolated from the host site's CSS.
+    try {
+      const Sheet = document.defaultView?.CSSStyleSheet || globalThis.CSSStyleSheet;
+      if (Sheet && 'adoptedStyleSheets' in root && typeof Sheet.prototype.replaceSync === 'function') {
+        const sheet = new Sheet();
+        sheet.replaceSync(cssText);
+        root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
+        return 'constructable';
+      }
+    } catch (error) {
+      console.warn('[Link Garden] Constructable stylesheet unavailable; using fallback.', error);
+    }
+
+    try {
+      const style = document.createElement('style');
+      style.setAttribute('data-link-garden-styles', 'fallback');
+      style.textContent = cssText;
+      root.appendChild(style);
+      return 'style-element';
+    } catch (error) {
+      console.error('[Link Garden] Could not install interface styles.', error);
+      return 'failed';
+    }
+  }
+
   function initUI() {
+    const existingHost = document.getElementById('link-garden-root');
+    if (existingHost) existingHost.remove();
+
     const host = document.createElement('div');
     host.id = 'link-garden-root';
     host.style.all = 'initial';
@@ -621,12 +653,10 @@
     host.style.zIndex = '2147483646';
     document.documentElement.appendChild(host);
     shadow = host.attachShadow({ mode: 'open' });
-
-    const style = document.createElement('style');
-    style.textContent = CSS;
-    shadow.appendChild(style);
+    const styleMode = installShadowStyles(shadow, CSS);
 
     const shell = document.createElement('div');
+    shell.dataset.styleMode = styleMode;
     shell.className = 'lg-shell';
     shell.innerHTML = `
       <button class="lg-launcher" type="button" aria-label="Open Link Garden" title="Open Link Garden (Shift+G)">
@@ -638,6 +668,19 @@
       </section>
       <div class="lg-toast" role="status" aria-live="polite"></div>
     `;
+    if (styleMode === 'failed') {
+      shell.style.position = 'fixed';
+      shell.style.right = '18px';
+      shell.style.bottom = '18px';
+      shell.style.zIndex = '2147483646';
+      const fallbackLauncher = shell.querySelector('.lg-launcher');
+      const fallbackPanel = shell.querySelector('.lg-panel');
+      if (fallbackLauncher) {
+        fallbackLauncher.style.cssText = 'width:58px;height:58px;border-radius:50%;border:1px solid rgba(255,255,255,.35);background:#356a43;color:white;font-size:28px;display:grid;place-items:center;box-shadow:0 10px 28px rgba(25,71,39,.35);';
+      }
+      if (fallbackPanel) fallbackPanel.style.display = 'none';
+    }
+
     shadow.appendChild(shell);
 
     launcher = shell.querySelector('.lg-launcher');
